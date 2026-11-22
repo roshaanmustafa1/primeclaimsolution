@@ -2,7 +2,7 @@ export const teamMembers = [
   {
     name: "Faizan Karamat",
     title: "Medical Billing & Revenue Cycle Management (RCM) Specialist",
-    image: "/images/team/faizan-karamat.jpeg",
+    image: "/images/team/faizan-snap.jpeg",
     initials: "FK",
     portfolio: "https://faizan-profile.vercel.app/",
   },
