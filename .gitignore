@@ -21,7 +21,7 @@
 # misc
 .DS_Store
 *.pem
-/primeclaimsolutions.zip
+/primeclaimsolution.zip
 
 # debug
 npm-debug.log*

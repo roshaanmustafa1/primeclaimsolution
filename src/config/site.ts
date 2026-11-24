@@ -5,13 +5,13 @@ export const siteConfig: SiteConfig = {
   tagline: "Medical Billing Services for Healthcare Practices",
   description:
     "Medical billing, coding, denial management, and insurance follow-up for healthcare practices. Prime Claim Solutions helps your team focus on patient care.",
-  url: "https://primeclaimsolutions.com",
-  ogImage: "https://primeclaimsolutions.com/og-image.jpg",
+  url: "https://primeclaimsolution.com",
+  ogImage: "https://primeclaimsolution.com/og-image.jpg",
   links: {
-    portal: "https://portal.primeclaimsolutions.com",
+    portal: "https://portal.primeclaimsolution.com",
     audit: "/contact",
     phone: "(888) 427-6664",
-    email: "solutions@primeclaimsolutions.com",
+    email: "solutions@primeclaimsolution.com",
     address: "700 Technology Square, Suite 400, Cambridge, MA 02139",
   },
   certifications: [
