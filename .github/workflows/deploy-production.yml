@@ -1,0 +1,120 @@
+name: Deploy production
+on:
+  push:
+    branches: [main]
+concurrency:
+  group: deploy-primeclaimsolution-production
+  cancel-in-progress: false
+permissions:
+  contents: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      WHM_HOST: ${{ secrets.WHM_HOST }}
+      WHM_USER: ${{ secrets.WHM_USER }}
+      WHM_PORT: ${{ secrets.WHM_PORT }}
+      WHM_PATH: ${{ secrets.WHM_PATH }}
+    steps:
+      - uses: actions/checkout@11bd5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install and build
+        run: |
+          npm ci
+          npm run build
+      - name: Package release
+        run: |
+          mkdir -p release
+          cp -r .next/standalone/. release/
+          cp -r .next/static release/.next/static
+          cp -r public release/public
+          tar -czf release.tar.gz -C release .
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@dc588b651fe13675774614f8e6a936a468676387 # v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.WHM_SSH_KEY }}
+      - name: Set up known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.WHM_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Transfer release
+        run: |
+          scp -P "$WHM_PORT" -o StrictHostKeyChecking=yes \
+            release.tar.gz "$WHM_USER@$WHM_HOST:$WHM_PATH/incoming.tar.gz"
+      - name: Deploy on server
+        run: |
+          TS=$(date +%Y%m%d-%H%M%S)
+          echo "RELEASE_TS=$TS" >> "$GITHUB_ENV"
+          ssh -p "$WHM_PORT" -o StrictHostKeyChecking=yes \
+            "$WHM_USER@$WHM_HOST" "bash -s '$WHM_PATH' '$TS'" <<'EOF'
+          set -euo pipefail
+          APP="$1"; TS="$2"; RELEASE="$APP/releases/$TS"
+          exec 9>"$APP/deploy.lock"
+          flock -n 9 || { echo "deploy already running"; exit 1; }
+          mkdir -p "$RELEASE"
+          tar -xzf "$APP/incoming.tar.gz" -C "$RELEASE"
+          rm -f "$APP/incoming.tar.gz"
+          test -f "$RELEASE/server.js" || { echo "server.js missing"; exit 1; }
+          test -f "$RELEASE/.next/BUILD_ID" || { echo "BUILD_ID missing"; exit 1; }
+          printf '%s' "$TS" > "$RELEASE/RELEASE_ID"
+          if [ -f "$APP/shared/.env" ]; then ln -sf "$APP/shared/.env" "$RELEASE/.env"; fi
+          ln -sfn "$RELEASE" "$APP/current"
+          pkill -f "node server.js" || true
+          pkill -f "next-server" || true
+          sleep 2
+          mkdir -p "$RELEASE/tmp"
+          touch "$RELEASE/tmp/restart.txt"
+          echo "DEPLOYED $RELEASE"
+          EOF
+      - name: Health check
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS "https://primeclaimsolution.com/api/health" | grep -q '"ok":true'; then
+              echo "HEALTHY"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "health check failed"
+          exit 1
+      - name: Verify pages
+        run: |
+          for p in "" "about" "projects" "contact"; do
+            curl -fsS -o /dev/null -w "%{http_code} %{url_effective}\n" "https://primeclaimsolution.com/$p"
+          done
+      - name: Tag release and log
+        run: |
+          git tag "prod-$RELEASE_TS"
+          git push origin "prod-$RELEASE_TS"
+          ssh -p "$WHM_PORT" -o StrictHostKeyChecking=yes \
+            "$WHM_USER@$WHM_HOST" "bash -s '$WHM_PATH' '$RELEASE_TS' '$GITHUB_SHA'" <<'EOF'
+          APP="$1"; TS="$2"; SHA="$3"
+          echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) DEPLOY $SHA releases/$TS HEALTHY" >> "$APP/deploy.log"
+          cd "$APP/releases" && ls -1 | sort | head -n -3 | xargs -r -I{} rm -rf "{}"
+          EOF
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          ssh -p "$WHM_PORT" -o StrictHostKeyChecking=yes \
+            "$WHM_USER@$WHM_HOST" "bash -s '$WHM_PATH'" <<'EOF'
+          APP="$1"
+          PREV=$(ls -1 "$APP/releases" | sort | tail -n 2 | head -n 1)
+          [ -n "$PREV" ] || { echo "no previous release"; exit 1; }
+          ln -sfn "$APP/releases/$PREV" "$APP/current"
+          pkill -f "node server.js" || true
+          pkill -f "next-server" || true
+          sleep 2
+          touch "$APP/current/tmp/restart.txt"
+          echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) ROLLBACK -> releases/$PREV" >> "$APP/deploy.log"
+          EOF
+          for i in 1 2 3; do
+            curl -fsS "https://primeclaimsolution.com/api/health" | grep -q '"ok":true' && exit 1
+            sleep 5
+          done
+          echo "rollback health check also failed"
+          exit 1
