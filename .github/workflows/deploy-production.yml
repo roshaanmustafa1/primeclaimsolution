@@ -79,8 +79,10 @@ jobs:
           EOF
       - name: Health check
         run: |
+          ssh -p "$WHM_PORT" -o StrictHostKeyChecking=yes \
+            "$WHM_USER@$WHM_HOST" <<'EOF'
           for i in $(seq 1 24); do
-            if curl -fsS "https://primeclaimsolution.com/api/health" | grep -q '"ok":true'; then
+            if curl -fsS --max-time 10 "https://primeclaimsolution.com/api/health" | grep -q '"ok":true'; then
               echo "HEALTHY"
               exit 0
             fi
@@ -88,11 +90,17 @@ jobs:
           done
           echo "health check failed"
           exit 1
+          EOF
       - name: Verify pages
         run: |
+          ssh -p "$WHM_PORT" -o StrictHostKeyChecking=yes \
+            "$WHM_USER@$WHM_HOST" <<'EOF'
           for p in "" "about" "projects" "contact"; do
-            curl -fsS -o /dev/null -w "%{http_code} %{url_effective}\n" "https://primeclaimsolution.com/$p"
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "https://primeclaimsolution.com/$p")
+            echo "$code /$p"
+            [ "$code" = "200" ] || exit 1
           done
+          EOF
       - name: Tag release and log
         run: |
           git tag "prod-$RELEASE_TS"
@@ -118,9 +126,12 @@ jobs:
           touch "$APP/tmp/restart.txt"
           echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) ROLLBACK in-place -> previous" >> "$APP/deploy.log"
           EOF
+          ssh -p "$WHM_PORT" -o StrictHostKeyChecking=yes \
+            "$WHM_USER@$WHM_HOST" <<'EOF'
           for i in $(seq 1 12); do
-            curl -fsS "https://primeclaimsolution.com/api/health" | grep -q '"ok":true' && exit 1
+            curl -fsS --max-time 10 "https://primeclaimsolution.com/api/health" | grep -q '"ok":true' && exit 1
             sleep 5
           done
           echo "rollback health check also failed"
           exit 1
+          EOF
