@@ -13,9 +13,15 @@ function releaseId(): string {
 }
 
 export function GET() {
-  return NextResponse.json({
-    ok: true,
-    release: releaseId(),
-    uptime: Math.floor(process.uptime()),
-  });
+  // PHASE 4 DRILL ONLY: intentionally broken health endpoint.
+  // The deploy health check must fail and auto-rollback must restore the previous release.
+  // Revert immediately after the drill proves rollback.
+  return NextResponse.json(
+    {
+      ok: false,
+      release: releaseId(),
+      uptime: Math.floor(process.uptime()),
+    },
+    { status: 500 }
+  );
 }
