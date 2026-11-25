@@ -62,6 +62,7 @@ jobs:
           [ -f "$APP/server.js" ] && cp -a "$APP/server.js" "$APP/previous/"
           [ -d "$APP/.next" ] && cp -a "$APP/.next" "$APP/previous/"
           [ -d "$APP/public" ] && cp -a "$APP/public" "$APP/previous/"
+          [ -f "$APP/RELEASE_ID" ] && cp -a "$APP/RELEASE_ID" "$APP/previous/"
           rm -rf "$APP/server.js" "$APP/.next" "$APP/public"
           tar -xzf "$APP/incoming.tar.gz" -C "$APP"
           rm -f "$APP/incoming.tar.gz"
@@ -78,7 +79,7 @@ jobs:
           EOF
       - name: Health check
         run: |
-          for i in $(seq 1 12); do
+          for i in $(seq 1 24); do
             if curl -fsS "https://primeclaimsolution.com/api/health" | grep -q '"ok":true'; then
               echo "HEALTHY"
               exit 0
@@ -110,13 +111,14 @@ jobs:
           [ -f "$APP/previous/server.js" ] || { echo "no previous release"; exit 1; }
           rm -rf "$APP/server.js" "$APP/.next" "$APP/public"
           mv "$APP/previous/server.js" "$APP/previous/.next" "$APP/previous/public" "$APP/"
+          [ -f "$APP/previous/RELEASE_ID" ] && mv "$APP/previous/RELEASE_ID" "$APP/"
           pkill -f "node server.js" || true
           pkill -f "next-server" || true
           sleep 2
           touch "$APP/tmp/restart.txt"
           echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) ROLLBACK in-place -> previous" >> "$APP/deploy.log"
           EOF
-          for i in 1 2 3; do
+          for i in $(seq 1 12); do
             curl -fsS "https://primeclaimsolution.com/api/health" | grep -q '"ok":true' && exit 1
             sleep 5
           done
