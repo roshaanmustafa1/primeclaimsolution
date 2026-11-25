@@ -29,8 +29,9 @@ jobs:
       - name: Package release
         run: |
           mkdir -p release
-          cp -r .next/standalone/. release/
-          cp -r .next/static release/.next/static
+          cp .next/standalone/server.js release/server.js
+          cp -r .next release/.next
+          rm -rf release/.next/standalone
           cp -r public release/public
           tar -czf release.tar.gz -C release .
       - name: Start SSH agent
@@ -53,23 +54,27 @@ jobs:
           ssh -p "$WHM_PORT" -o StrictHostKeyChecking=yes \
             "$WHM_USER@$WHM_HOST" "bash -s '$WHM_PATH' '$TS'" <<'EOF'
           set -euo pipefail
-          APP="$1"; TS="$2"; RELEASE="$APP/releases/$TS"
+          APP="$1"; TS="$2"
           exec 9>"$APP/deploy.lock"
           flock -n 9 || { echo "deploy already running"; exit 1; }
-          mkdir -p "$RELEASE"
-          tar -xzf "$APP/incoming.tar.gz" -C "$RELEASE"
+          rm -rf "$APP/previous"
+          mkdir -p "$APP/previous"
+          [ -f "$APP/server.js" ] && cp -a "$APP/server.js" "$APP/previous/"
+          [ -d "$APP/.next" ] && cp -a "$APP/.next" "$APP/previous/"
+          [ -d "$APP/public" ] && cp -a "$APP/public" "$APP/previous/"
+          rm -rf "$APP/server.js" "$APP/.next" "$APP/public"
+          tar -xzf "$APP/incoming.tar.gz" -C "$APP"
           rm -f "$APP/incoming.tar.gz"
-          test -f "$RELEASE/server.js" || { echo "server.js missing"; exit 1; }
-          test -f "$RELEASE/.next/BUILD_ID" || { echo "BUILD_ID missing"; exit 1; }
-          printf '%s' "$TS" > "$RELEASE/RELEASE_ID"
-          if [ -f "$APP/shared/.env" ]; then ln -sf "$APP/shared/.env" "$RELEASE/.env"; fi
-          ln -sfn "$RELEASE" "$APP/current"
+          test -f "$APP/server.js" || { echo "server.js missing"; exit 1; }
+          test -f "$APP/.next/BUILD_ID" || { echo "BUILD_ID missing"; exit 1; }
+          printf '%s' "$TS" > "$APP/RELEASE_ID"
+          if [ -f "$APP/shared/.env" ]; then ln -sf "$APP/shared/.env" "$APP/.env"; fi
           pkill -f "node server.js" || true
           pkill -f "next-server" || true
           sleep 2
-          mkdir -p "$RELEASE/tmp"
-          touch "$RELEASE/tmp/restart.txt"
-          echo "DEPLOYED $RELEASE"
+          mkdir -p "$APP/tmp"
+          touch "$APP/tmp/restart.txt"
+          echo "DEPLOYED $APP (in-place $TS)"
           EOF
       - name: Health check
         run: |
@@ -94,8 +99,7 @@ jobs:
           ssh -p "$WHM_PORT" -o StrictHostKeyChecking=yes \
             "$WHM_USER@$WHM_HOST" "bash -s '$WHM_PATH' '$RELEASE_TS' '$GITHUB_SHA'" <<'EOF'
           APP="$1"; TS="$2"; SHA="$3"
-          echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) DEPLOY $SHA releases/$TS HEALTHY" >> "$APP/deploy.log"
-          cd "$APP/releases" && ls -1 | sort | head -n -3 | xargs -r -I{} rm -rf "{}"
+          echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) DEPLOY $SHA in-place $TS HEALTHY" >> "$APP/deploy.log"
           EOF
       - name: Rollback on failure
         if: failure()
@@ -103,14 +107,14 @@ jobs:
           ssh -p "$WHM_PORT" -o StrictHostKeyChecking=yes \
             "$WHM_USER@$WHM_HOST" "bash -s '$WHM_PATH'" <<'EOF'
           APP="$1"
-          PREV=$(ls -1 "$APP/releases" | sort | tail -n 2 | head -n 1)
-          [ -n "$PREV" ] || { echo "no previous release"; exit 1; }
-          ln -sfn "$APP/releases/$PREV" "$APP/current"
+          [ -f "$APP/previous/server.js" ] || { echo "no previous release"; exit 1; }
+          rm -rf "$APP/server.js" "$APP/.next" "$APP/public"
+          mv "$APP/previous/server.js" "$APP/previous/.next" "$APP/previous/public" "$APP/"
           pkill -f "node server.js" || true
           pkill -f "next-server" || true
           sleep 2
-          touch "$APP/current/tmp/restart.txt"
-          echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) ROLLBACK -> releases/$PREV" >> "$APP/deploy.log"
+          touch "$APP/tmp/restart.txt"
+          echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) ROLLBACK in-place -> previous" >> "$APP/deploy.log"
           EOF
           for i in 1 2 3; do
             curl -fsS "https://primeclaimsolution.com/api/health" | grep -q '"ok":true' && exit 1
