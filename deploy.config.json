@@ -1,0 +1,10 @@
+{
+  "project": "primeclaimsolution",
+  "framework": "nextjs",
+  "nodeVersion": "20",
+  "appRoot": "/home/primeclaimsoluti/primeclaimsolution",
+  "healthUrl": "https://primeclaimsolution.com/api/health",
+  "stagingDomain": "staging.primeclaimsolution.com",
+  "productionDomain": "primeclaimsolution.com",
+  "keepReleases": 3
+}
